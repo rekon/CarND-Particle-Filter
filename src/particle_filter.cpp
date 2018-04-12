@@ -42,6 +42,7 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
 		p.weight = 1;
 
 		particles.push_back(p);
+		weights.push_back(1);
 	}
 }
 
@@ -52,7 +53,7 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
 	//  http://www.cplusplus.com/reference/random/default_random_engine/
 
 	default_random_engine gen;
-	double std_x = std[0], std_y = std[1], std_theta = std[2];
+	double std_x = std_pos[0], std_y = std_pos[1], std_theta = std_pos[2];
 
 	normal_distribution<double> dist_x(0, std_x);
 	normal_distribution<double> dist_y(0, std_y);
@@ -67,8 +68,8 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
 			p.x += (velocity / yaw_rate) * (sin(p.theta + yaw_rate*delta_t) - sin(p.theta)) + dist_x(gen);
 			p.y += (velocity / yaw_rate) * (-cos(p.theta + yaw_rate*delta_t) + cos(p.theta)) + dist_y(gen);
 		} else {
-			p.x += (velocity  * (cos(p.theta) * delta_t) + dist_x(gen);
-			p.y += (velocity  * (sin(p.theta) * delta_t) + dist_y(gen);
+			p.x += (velocity  * (cos(p.theta) * delta_t) + dist_x(gen));
+			p.y += (velocity  * (sin(p.theta) * delta_t) + dist_y(gen));
 		
 		}
 		p.theta += yaw_rate*delta_t + dist_theta(gen);
@@ -94,7 +95,7 @@ void ParticleFilter::dataAssociation(std::vector<LandmarkObs> predicted, std::ve
 				index = j;
 			}
 		}
-		observations[i] = predicted[ index ];
+		observations[i].id = index;
 	}
 }
 
@@ -111,32 +112,47 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 	//   3.33
 	//   http://planning.cs.uiuc.edu/node99.html
 
-	std::vector<LandmarkObs> observations_in_world_coordinates, owc_copy;
+	std::vector<LandmarkObs> observations_in_world_coordinates, landmarks_in_range;
 	Particle p;
+	int n_map_landmarks = map_landmarks.landmark_list.size();
 
 	for (int k=0; k<num_particles; k++ ){
 		observations_in_world_coordinates.clear();
-		owc_copy.clear();
+		landmarks_in_range.clear();
 		p=particles[k];
 
 		for( int i=0; i<observations.size(); i++){
 			LandmarkObs obs;
-			obs.id = i
+			obs.id = i;
 			obs.x = p.x + cos(p.theta) * observations[i].x - sin(p.theta) * observations[i].y;
 			obs.y = p.y + sin(p.theta) * observations[i].x + cos(p.theta) * observations[i].y;
 
 			observations_in_world_coordinates.push_back( obs );
-			owc_copy.push_back( obs );
 		}
 
-		dataAssociation( map_landmarks, observations_in_world_coordinates );
+		for( int i=0; i < n_map_landmarks; i++){
+			double distance = dist(p.x, p.y, map_landmarks.landmark_list[i].x_f, map_landmarks.landmark_list[i].y_f );
+			if( distance <= sensor_range ){
+				LandmarkObs l{
+					map_landmarks.landmark_list[i].id_i,
+					map_landmarks.landmark_list[i].x_f,
+					map_landmarks.landmark_list[i].y_f
+				};
+				landmarks_in_range.push_back(l);
+			}
+		}
+
+		dataAssociation( landmarks_in_range, observations_in_world_coordinates );
 
 		p.weight = 1;
-		for( int i=0; i<owc_copy.size(); i++ ){
-			p.weight *= multivariate_gauss( owc_copy[i].x, observations_in_world_coordinates[i].x, std_landmark[0],
-											owc_copy[i].y, observations_in_world_coordinates[i].y, std_landmark[1] );
+		int index=0;
+		for( int i=0; i<observations_in_world_coordinates.size(); i++ ){
+			index = observations_in_world_coordinates[i].id;
+			p.weight *= multivariate_gauss( landmarks_in_range[index].x, observations_in_world_coordinates[i].x, std_landmark[0],
+											landmarks_in_range[index].y, observations_in_world_coordinates[i].y, std_landmark[1] );
 		}
 
+		weights[k] = p.weight;
 	}
 	
 
@@ -146,7 +162,27 @@ void ParticleFilter::resample() {
 	// TODO: Resample particles with replacement with probability proportional to their weight. 
 	// NOTE: You may find std::discrete_distribution helpful here.
 	//   http://en.cppreference.com/w/cpp/numeric/random/discrete_distribution
+
+	default_random_engine gen;
+	discrete_distribution<int> dd_w(weights.begin(), weights.end());
+
+	vector<Particle> new_particles;
+	int index;
+
+	for( int i=0; i < num_particles; i++){
+		index = dd_w(gen);
+
+		Particle p;
+		p.x = particles[index].x;
+		p.y = particles[index].y;
+		p.theta = particles[index].theta;
+		p.weight = 1;
+
+		new_particles.push_back(p);
+	}
 	
+	particles.clear();
+	particles = new_particles;
 }
 
 Particle ParticleFilter::SetAssociations(Particle& particle, const std::vector<int>& associations, 
