@@ -31,7 +31,7 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
 	normal_distribution<double> dist_y(y, std_y);
 	normal_distribution<double> dist_theta(theta, std_theta);
 
-	num_particles = 100;
+	num_particles = 50;
 	for( int i=0; i<num_particles; i++ ){
 		Particle p;
 
@@ -44,6 +44,8 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
 		particles.push_back(p);
 		weights.push_back(1);
 	}
+
+	is_initialized = true;
 }
 
 void ParticleFilter::prediction(double delta_t, double std_pos[], double velocity, double yaw_rate) {
@@ -73,6 +75,8 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
 		
 		}
 		p.theta += yaw_rate*delta_t + dist_theta(gen);
+
+		particles[i] = p;
 	}
 }
 
@@ -128,6 +132,7 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 			obs.y = p.y + sin(p.theta) * observations[i].x + cos(p.theta) * observations[i].y;
 
 			observations_in_world_coordinates.push_back( obs );
+
 		}
 
 		for( int i=0; i < n_map_landmarks; i++){
@@ -148,11 +153,22 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 		int index=0;
 		for( int i=0; i<observations_in_world_coordinates.size(); i++ ){
 			index = observations_in_world_coordinates[i].id;
-			p.weight *= multivariate_gauss( landmarks_in_range[index].x, observations_in_world_coordinates[i].x, std_landmark[0],
-											landmarks_in_range[index].y, observations_in_world_coordinates[i].y, std_landmark[1] );
+			p.weight *= multivariate_gauss( observations_in_world_coordinates[i].x, landmarks_in_range[index].x, std_landmark[0],
+											observations_in_world_coordinates[i].y, landmarks_in_range[index].y, std_landmark[1] );
 		}
 
 		weights[k] = p.weight;
+
+		p.associations.clear();
+		p.sense_x.clear();
+		p.sense_y.clear();
+		for( int i=0; i<observations_in_world_coordinates.size(); i++ ){
+			p.associations.push_back(observations_in_world_coordinates[i].id);
+			p.sense_x.push_back(observations_in_world_coordinates[i].x);
+			p.sense_y.push_back(observations_in_world_coordinates[i].y);
+		}
+
+		particles[k] = p;
 	}
 	
 
@@ -176,7 +192,7 @@ void ParticleFilter::resample() {
 		p.x = particles[index].x;
 		p.y = particles[index].y;
 		p.theta = particles[index].theta;
-		p.weight = 1;
+		p.weight = particles[index].weight;
 
 		new_particles.push_back(p);
 	}
